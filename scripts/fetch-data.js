@@ -2,9 +2,56 @@ import { writeFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA = resolve(__dirname, '../src/lib/data');
+const ARCHIVE_BASE = 'https://archive.pp0.co';
+
+const datasets = [
+  {
+    id: 'glossary',
+    base: 'https://glossary.data.heterarchy.fyi',
+    outputKey: 'terms',
+  },
+  {
+    id: 'books',
+    base: 'https://books.data.heterarchy.fyi',
+    endpoint: '/index.json',
+    outputKey: 'books',
+    transform: transformBooks,
+  },
+  {
+    id: 'writings',
+    base: 'https://writings.data.heterarchy.fyi',
+    outputKey: 'writings',
+  },
+  {
+    id: 'talks',
+    base: 'https://talks.data.heterarchy.fyi',
+    outputKey: 'talks',
+    optional: true,
+    extras: fetchTalkExtras,
+    transform: transformTalks,
+    summary: (data) => {
+      const matched = (data.talks ?? []).filter((talk) => talk.archiveSrc).length;
+      return `${data.talks?.length ?? 0} talks (${matched} with archive source)`;
+    },
+  },
+  {
+    id: 'people',
+    base: 'https://people.data.heterarchy.fyi',
+    outputKey: 'people',
+    optional: true,
+    transform: transformPeople,
+  },
+  {
+    id: 'events',
+    base: 'https://events.data.heterarchy.fyi',
+    endpoint: '/index.json',
+    outputKey: 'events',
+    optional: true,
+    transform: transformEvents,
+  },
+];
 
 async function fetchJson(url) {
   const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
@@ -12,156 +59,160 @@ async function fetchJson(url) {
   return res.json();
 }
 
-// Glossary
-const glossary = await fetchJson('https://glossary.data.heterarchy.fyi/');
-writeFileSync(`${DATA}/glossary.json`, JSON.stringify(glossary, null, 2) + '\n');
-console.log(`✓ Glossary: ${glossary.terms.length} terms → src/lib/data/glossary.json`);
-
-// Books
-const BOOKS_BASE = 'https://books.data.heterarchy.fyi';
-const raw = await fetchJson(`${BOOKS_BASE}/index.json`);
-const books = raw.books.map(({ cover, _assets, ...rest }) => {
-  const item = { ...rest, cover };
-  if (cover) {
-    item.coverUrl = `${BOOKS_BASE}/books/${rest.id}/${cover}`;
-    if (_assets && _assets[cover] && _assets[cover].image && _assets[cover].image.versions) {
-      item.coverVersions = {};
-      for (const [w, v] of Object.entries(_assets[cover].image.versions)) {
-        item.coverVersions[w] = `${BOOKS_BASE}/books/${rest.id}/${v.src}`;
-      }
-    }
-  }
-  return item;
-});
-writeFileSync(`${DATA}/books.json`, JSON.stringify({ ...raw, books }, null, 2) + '\n');
-console.log(`✓ Books: ${books.length} books → src/lib/data/books.json`);
-
-// Writings
-const writings = await fetchJson('https://writings.data.heterarchy.fyi/');
-writeFileSync(`${DATA}/writings.json`, JSON.stringify(writings, null, 2) + '\n');
-console.log(`✓ Writings: ${writings.writings.length} writings → src/lib/data/writings.json`);
-
-// Talks + Archive
-try {
-  const TALKS_BASE = 'https://talks.data.heterarchy.fyi';
-  const ARCHIVE_BASE = 'https://archive.pp0.co';
-
-  const [rawTalks, archiveData] = await Promise.all([
-    fetchJson(`${TALKS_BASE}/`),
-    fetchJson(`${ARCHIVE_BASE}/index.json`).catch(() => null),
-  ]);
-
-  const archiveById = archiveData
-    ? new Map(archiveData.videos.map((v) => [v.id, v]))
-    : new Map();
-
-  function talkThumbnailVersions(collection, filename, assets) {
-    if (!filename) return null;
-    const versions = assets?.[filename]?.image?.versions;
-    if (!versions) return null;
-    const dir = filename.includes('/') ? filename.replace(/[^/]+$/, '') : '';
-    const result = {};
-    for (const [w, v] of Object.entries(versions)) {
-      result[w] = `${TALKS_BASE}/talks/${collection}/${dir}${v.src}`;
-    }
-    return result;
-  }
-
-  const talks = {
-    ...rawTalks,
-    talks: (rawTalks.talks ?? []).map(({ _assets, ...talk }) => {
-      const item = { ...talk };
-      if (talk.thumbnail) {
-        item.thumbnailUrl = `${TALKS_BASE}/talks/${talk.collection}/${talk.thumbnail}`;
-        const v = talkThumbnailVersions(talk.collection, talk.thumbnail, _assets);
-        if (v) item.thumbnailVersions = v;
-      }
-      const archive = talk.video?.videoId ? archiveById.get(talk.video.videoId) : null;
-      if (archive) {
-        item.archiveSrc = `${ARCHIVE_BASE}${archive.source.path}`;
-        item.archiveDuration = parseFloat(archive.duration);
-      }
-      return item;
-    }),
-  };
-
-  const archiveMatched = talks.talks.filter((t) => t.archiveSrc).length;
-  writeFileSync(`${DATA}/talks.json`, JSON.stringify(talks, null, 2) + '\n');
-  console.log(`✓ Talks: ${talks.talks?.length ?? 0} talks (${archiveMatched} with archive source) → src/lib/data/talks.json`);
-} catch (error) {
-  console.warn(`⚠ Talks dataset not fetched yet: ${error.message}`);
+function jsonUrl({ base, endpoint = '/' }) {
+  return new URL(endpoint, `${base}/`).href;
 }
 
-// People
-try {
-  const PEOPLE_BASE = 'https://people.data.heterarchy.fyi';
-  const rawPeople = await fetchJson(`${PEOPLE_BASE}/`);
+function writeJson(filename, data) {
+  writeFileSync(`${DATA}/${filename}`, JSON.stringify(data, null, 2) + '\n');
+}
 
-  function avatarVersions(personId, filename, assets) {
-    const versions = assets?.[filename]?.image?.versions;
-    if (!versions) return null;
-    const result = {};
-    for (const [w, v] of Object.entries(versions)) {
-      result[w] = `${PEOPLE_BASE}/people/${personId}/${v.src}`;
-    }
-    return result;
+function title(id) {
+  return id.slice(0, 1).toUpperCase() + id.slice(1);
+}
+
+function defaultSummary(data, outputKey) {
+  return `${data[outputKey]?.length ?? 0} ${outputKey}`;
+}
+
+function imageVersions(assets, filename, urlForVersion) {
+  const versions = assets?.[filename]?.image?.versions;
+  if (!versions) return null;
+
+  const result = {};
+  for (const [width, version] of Object.entries(versions)) {
+    result[width] = urlForVersion(version);
   }
+  return result;
+}
 
-  const people = {
-    ...rawPeople,
-    people: (rawPeople.people ?? []).map(({ _assets, ...person }) => {
-      const item = { ...person };
+function stripAssets(item) {
+  const { _assets, ...rest } = item;
+  return { item: rest, assets: _assets };
+}
+
+async function fetchBuildInfo(dataset) {
+  try {
+    return await fetchJson(jsonUrl({ ...dataset, endpoint: '/build.json' }));
+  } catch (error) {
+    console.warn(`⚠ ${dataset.id} build info not fetched: ${error.message}`);
+    return null;
+  }
+}
+
+async function fetchTalkExtras() {
+  const archiveData = await fetchJson(`${ARCHIVE_BASE}/index.json`).catch(() => null);
+  return {
+    archiveById: archiveData
+      ? new Map(archiveData.videos.map((video) => [video.id, video]))
+      : new Map(),
+  };
+}
+
+function transformBooks(raw, { base }) {
+  return {
+    ...raw,
+    books: (raw.books ?? []).map((rawBook) => {
+      const { item: book, assets } = stripAssets(rawBook);
+      if (!book.cover) return book;
+
+      book.coverUrl = `${base}/books/${book.id}/${book.cover}`;
+      const versions = imageVersions(assets, book.cover, (version) => `${base}/books/${book.id}/${version.src}`);
+      if (versions) book.coverVersions = versions;
+      return book;
+    }),
+  };
+}
+
+function transformTalks(raw, { base, extras }) {
+  return {
+    ...raw,
+    talks: (raw.talks ?? []).map((rawTalk) => {
+      const { item: talk, assets } = stripAssets(rawTalk);
+      if (talk.thumbnail) {
+        talk.thumbnailUrl = `${base}/talks/${talk.collection}/${talk.thumbnail}`;
+        const dir = talk.thumbnail.includes('/') ? talk.thumbnail.replace(/[^/]+$/, '') : '';
+        const versions = imageVersions(
+          assets,
+          talk.thumbnail,
+          (version) => `${base}/talks/${talk.collection}/${dir}${version.src}`,
+        );
+        if (versions) talk.thumbnailVersions = versions;
+      }
+
+      const archive = talk.video?.videoId ? extras.archiveById.get(talk.video.videoId) : null;
+      if (archive) {
+        talk.archiveSrc = `${ARCHIVE_BASE}${archive.source.path}`;
+        talk.archiveDuration = parseFloat(archive.duration);
+      }
+      return talk;
+    }),
+  };
+}
+
+function transformPeople(raw, { base }) {
+  return {
+    ...raw,
+    people: (raw.people ?? []).map((rawPerson) => {
+      const { item: person, assets } = stripAssets(rawPerson);
+      const avatarVersions = (filename) =>
+        imageVersions(assets, filename, (version) => `${base}/people/${person.id}/${version.src}`);
+
       if (person.avatar) {
-        const v = avatarVersions(person.id, person.avatar, _assets);
-        if (v) item.avatarVersions = v;
+        const versions = avatarVersions(person.avatar);
+        if (versions) person.avatarVersions = versions;
       }
       if (person.avatarsAlt?.length) {
-        item.avatarsAltVersions = person.avatarsAlt.map(
-          (f) => avatarVersions(person.id, f, _assets) ?? null
-        );
+        person.avatarsAltVersions = person.avatarsAlt.map((filename) => avatarVersions(filename) ?? null);
       }
-      return item;
+      return person;
     }),
   };
-
-  writeFileSync(`${DATA}/people.json`, JSON.stringify(people, null, 2) + '\n');
-  console.log(`✓ People: ${people.people?.length ?? 0} people → src/lib/data/people.json`);
-} catch (error) {
-  console.warn(`⚠ People dataset not fetched yet: ${error.message}`);
 }
 
-// Events
-try {
-  const EVENTS_BASE = 'https://events.data.heterarchy.fyi';
-  const rawEvents = await fetchJson(`${EVENTS_BASE}/index.json`);
-
-  function eventImageVersions(eventId, filename, assets) {
-    const versions = assets?.[filename]?.image?.versions;
-    if (!versions) return null;
-    const result = {};
-    for (const [w, v] of Object.entries(versions)) {
-      result[w] = `${EVENTS_BASE}/events/${eventId}/${v.src}`;
-    }
-    return result;
-  }
-
-  const events = {
-    ...rawEvents,
-    events: (rawEvents.events ?? []).map(({ _assets, ...event }) => {
-      const item = { ...event };
-      if (event.imgs?.length && _assets) {
-        item.imgVersions = {};
+function transformEvents(raw, { base }) {
+  return {
+    ...raw,
+    events: (raw.events ?? []).map((rawEvent) => {
+      const { item: event, assets } = stripAssets(rawEvent);
+      if (event.imgs?.length && assets) {
+        event.imgVersions = {};
         for (const img of event.imgs) {
-          const v = eventImageVersions(event.id, img.path, _assets);
-          if (v) item.imgVersions[img.path] = v;
+          const versions = imageVersions(assets, img.path, (version) => `${base}/events/${event.id}/${version.src}`);
+          if (versions) event.imgVersions[img.path] = versions;
         }
       }
-      return item;
+      return event;
     }),
   };
-
-  writeFileSync(`${DATA}/events.json`, JSON.stringify(events, null, 2) + '\n');
-  console.log(`✓ Events: ${events.events?.length ?? 0} events → src/lib/data/events.json`);
-} catch (error) {
-  console.warn(`⚠ Events dataset not fetched yet: ${error.message}`);
 }
+
+async function fetchDataset(dataset) {
+  const [raw, build, extras] = await Promise.all([
+    fetchJson(jsonUrl(dataset)),
+    fetchBuildInfo(dataset),
+    dataset.extras ? dataset.extras(dataset) : null,
+  ]);
+  const data = dataset.transform ? dataset.transform(raw, { ...dataset, extras }) : raw;
+
+  writeJson(`${dataset.id}.json`, data);
+  const summary = dataset.summary?.(data) ?? defaultSummary(data, dataset.outputKey);
+  console.log(`✓ ${title(dataset.id)}: ${summary} → src/lib/data/${dataset.id}.json`);
+
+  return build;
+}
+
+const buildInfo = {};
+
+for (const dataset of datasets) {
+  try {
+    buildInfo[dataset.id] = await fetchDataset(dataset);
+  } catch (error) {
+    if (!dataset.optional) throw error;
+    buildInfo[dataset.id] = null;
+    console.warn(`⚠ ${title(dataset.id)} dataset not fetched yet: ${error.message}`);
+  }
+}
+
+writeJson('builds.json', buildInfo);
+console.log('✓ Build info → src/lib/data/builds.json');

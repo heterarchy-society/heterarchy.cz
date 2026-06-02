@@ -6,24 +6,32 @@
 	import * as m from '$lib/paraglide/messages';
 	import { timeAgo } from '$lib/time';
 	import { browser } from '$app/environment';
-	import { Check } from 'lucide-svelte';
+	import { Check, Download } from 'lucide-svelte';
 
 	const { data } = $props();
 
-	// Live comparison: fetch each dataset's build.json and diff against this page's snapshot.
-	type LiveInfo = { hash: string; date: string; collections: Record<string, number> };
+	type LiveInfo = {
+		hash: string | null;
+		date: string | null;
+		collections: Record<string, number>;
+		bundleSize: number | null;
+	};
 	// undefined = not checked yet, null = unavailable, object = loaded
 	let live = $state<Record<string, LiveInfo | null>>({});
 
 	$effect(() => {
 		if (!browser) return;
 		for (const ds of data.datasets) {
-			const url = new URL('build.json', ds.endpoint).href;
-			fetch(url)
+			fetch(ds.buildEndpoint)
 				.then((r) => (r.ok ? r.json() : null))
 				.then((j) => {
-					live[ds.id] = j?.commit?.hash
-						? { hash: j.commit.hash, date: j.commit.date, collections: j.collections ?? {} }
+					live[ds.id] = j
+						? {
+								hash: j.commit?.hash ?? null,
+								date: j.commit?.date ?? j.generated ?? null,
+								collections: j.collections ?? {},
+								bundleSize: j.bundle?.size ?? null
+						}
 						: null;
 				})
 				.catch(() => {
@@ -31,11 +39,6 @@
 				});
 		}
 	});
-
-	function isBehind(ds: (typeof data.datasets)[number]): boolean {
-		const l = live[ds.id];
-		return !!(l && ds.commit && l.hash !== ds.commit);
-	}
 
 	function formatDate(iso: string): string {
 		if (!iso) return 'unknown';
@@ -46,6 +49,18 @@
 			hour: '2-digit',
 			minute: '2-digit'
 		});
+	}
+
+	function formatBytes(bytes: number | null): string {
+		if (bytes == null) return 'unknown';
+		const units = ['B', 'KB', 'MB', 'GB'];
+		let value = bytes;
+		let unit = 0;
+		while (value >= 1024 && unit < units.length - 1) {
+			value /= 1024;
+			unit += 1;
+		}
+		return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
 	}
 
 	function datasetName(id: string): string {
@@ -86,6 +101,7 @@
 	}
 
 	const examples = [
+		{ label: 'glossary build', url: 'https://glossary.data.heterarchy.fyi/build.json' },
 		{ label: 'glossary bundle', url: 'https://glossary.data.heterarchy.fyi/' },
 		{ label: 'terms index', url: 'https://glossary.data.heterarchy.fyi/terms-index.json' },
 		{ label: 'term: bittorrent', url: 'https://glossary.data.heterarchy.fyi/terms/bittorrent.json' },
@@ -154,12 +170,13 @@
 
 			<p class="mb-3 font-mono text-[11px] text-black/35">{m.data_live_note()}</p>
 			<div class="overflow-x-auto border-y border-line">
-				<table class="w-full min-w-[720px] border-collapse font-mono text-[12px]">
+				<table class="w-full min-w-[820px] border-collapse font-mono text-[12px]">
 					<thead>
 						<tr class="border-b border-line text-left text-[10px] uppercase tracking-widest text-black/35">
 							<th class="py-3 pr-10 font-normal">{m.data_dataset()}</th>
 							<th class="py-3 pr-6 font-normal">{m.data_collection()}</th>
 							<th class="py-3 pr-6 font-normal">{m.data_count()}</th>
+							<th class="py-3 pr-6 font-normal">{m.data_bundle_size()}</th>
 							<th class="py-3 pr-6 font-normal">{m.data_commit()}</th>
 							<th class="py-3 font-normal">{m.data_updated()}</th>
 						</tr>
@@ -167,11 +184,13 @@
 					<tbody>
 						{#each data.datasets as dataset}
 					{@const liveDs = live[dataset.id]}
-							{#each dataset.collections as collection, i}
-						{@const liveCount = liveDs?.collections?.[collection.name]}
-						{@const countChanged = liveCount != null && liveCount !== collection.count}
-						{@const commitChanged = !!liveDs && !!dataset.commit && liveDs.hash !== dataset.commit}
-						{@const rowBehind = countChanged || commitChanged}
+								{#each dataset.collections as collection, i}
+							{@const liveCount = liveDs?.collections?.[collection.name]}
+							{@const liveBundleSize = liveDs?.bundleSize}
+							{@const countChanged = liveCount != null && liveCount !== collection.count}
+							{@const bundleSizeChanged = liveBundleSize != null && liveBundleSize !== dataset.bundleSize}
+							{@const commitChanged = !!liveDs?.hash && !!dataset.commit && liveDs.hash !== dataset.commit}
+							{@const rowBehind = countChanged || bundleSizeChanged || commitChanged}
 								<tr class="align-top {i === dataset.collections.length - 1 ? 'border-b border-line' : ''}">
 									{#if i === 0}
 										<td rowspan={dataset.collections.length} class="py-5 pr-10 align-top">
@@ -193,11 +212,27 @@
 										{#if liveDs}{#if rowBehind}<span class="size-1.5 shrink-0 rounded-full bg-amber-500" title={m.data_live_behind()}></span>{:else}<span class="inline-flex text-green-600" title={m.data_live_current()}><Check size={13} strokeWidth={2.5} /></span>{/if}{/if}
 										{collection.name}
 									</span>
-								</td>
-									<td class="py-5 pr-6 tabular-nums text-black/65">{collection.count ?? 'unknown'}{#if liveCount != null && liveCount !== collection.count}<span class="ml-1 text-amber-600">→ {liveCount}</span>{/if}</td>
-									<td class="py-5 pr-6 text-black/65">
+									</td>
+										<td class="py-5 pr-6 tabular-nums text-black/65">{collection.count ?? 'unknown'}{#if countChanged}<span class="ml-1 text-amber-600">→ {liveCount}</span>{/if}</td>
+										{#if i === 0}
+											<td rowspan={dataset.collections.length} class="py-5 pr-6 align-top tabular-nums text-black/65">
+												<div class="flex items-center gap-2">
+													<span>{formatBytes(dataset.bundleSize)}{#if bundleSizeChanged}<span class="ml-1 text-amber-600">→ {formatBytes(liveBundleSize)}</span>{/if}</span>
+													<a
+														href={dataset.bundleUrl}
+														download
+														class="inline-flex size-6 shrink-0 items-center justify-center border border-line text-black/35 transition-colors hover:border-black/30 hover:text-black/70"
+														title={m.data_bundle_download()}
+														aria-label={m.data_bundle_download()}
+													>
+														<Download size={13} strokeWidth={2} />
+													</a>
+												</div>
+											</td>
+										{/if}
+										<td class="py-5 pr-6 text-black/65">
 										{#if dataset.commit}
-											<a href="{dataset.repository}/commit/{dataset.commit}" target="_blank" rel="noopener noreferrer" class="link-external tabular-nums text-black/70">{dataset.commit.slice(0, 7)}</a>{#if commitChanged}<a href="{dataset.repository}/commit/{liveDs.hash}" target="_blank" rel="noopener noreferrer" class="ml-1 tabular-nums text-amber-600 no-underline hover:underline">→ {liveDs.hash.slice(0, 7)}</a>{/if}
+											<a href="{dataset.repository}/commit/{dataset.commit}" target="_blank" rel="noopener noreferrer" class="link-external tabular-nums text-black/70">{dataset.commit.slice(0, 7)}</a>{#if commitChanged && liveDs?.hash}<a href="{dataset.repository}/commit/{liveDs.hash}" target="_blank" rel="noopener noreferrer" class="ml-1 tabular-nums text-amber-600 no-underline hover:underline">→ {liveDs.hash.slice(0, 7)}</a>{/if}
 										{:else}
 											<span>unknown</span>
 										{/if}
@@ -205,7 +240,7 @@
 									<td class="py-5 whitespace-nowrap tabular-nums text-black/65">
 										{#if dataset.updatedAt}
 											<a href={collection.changelogPath} class="hover:text-black">{formatDate(dataset.updatedAt)}</a>
-											<span class="mt-1 block text-black/25">({timeAgo(dataset.updatedAt, getLocale())})</span>{#if commitChanged}<span class="mt-1 block text-amber-600">→ {timeAgo(liveDs.date, getLocale())}</span>{/if}
+											<span class="mt-1 block text-black/25">({timeAgo(dataset.updatedAt, getLocale())})</span>{#if commitChanged && liveDs?.date}<span class="mt-1 block text-amber-600">→ {timeAgo(liveDs.date, getLocale())}</span>{/if}
 										{:else}
 											<span>unknown</span>
 										{/if}

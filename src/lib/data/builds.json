@@ -1,0 +1,111 @@
+{
+  "glossary": {
+    "generated": "2026-06-02T11:26:48.565Z",
+    "commit": {
+      "hash": "e3745aa233d5fb9cbb30a2d72e787755d8116b10",
+      "date": "2026-06-02T13:26:39+02:00"
+    },
+    "collections": {
+      "terms": 161
+    },
+    "bundle": {
+      "file": "bundle.tar.zst",
+      "size": 343836
+    }
+  },
+  "books": {
+    "generated": "2026-05-31T04:51:18.928Z",
+    "commit": {
+      "hash": "e4005f89986af7dfbec2d658d8089f17b6af96a4",
+      "date": "2026-05-31T06:44:06+02:00"
+    },
+    "collections": {
+      "books": 68
+    },
+    "bundle": {
+      "file": "bundle.tar.zst",
+      "size": 12016375
+    }
+  },
+  "writings": {
+    "generated": "2026-05-31T04:44:54.091Z",
+    "commit": {
+      "hash": "e7c19a527e6d2b9cfbf68875050e7d28e0877571",
+      "date": "2026-05-31T06:44:11+02:00"
+    },
+    "collections": {
+      "writings": 16
+    },
+    "bundle": {
+      "file": "bundle.tar.zst",
+      "size": 9409705
+    }
+  },
+  "talks": {
+    "generated": "2026-05-31T04:44:40.200Z",
+    "commit": {
+      "hash": "ec25eb416ac6d49c52e4c7f5574f218cab2a1dc9",
+      "date": "2026-05-31T06:44:10+02:00"
+    },
+    "collections": {
+      "talks": 835,
+      "dod-ethberlin24-keynotes": 11,
+      "dod-protocol-berg-2023-main-stage": 17,
+      "ift-psc24": 9,
+      "monerokon-community-monerokon19": 28,
+      "monerokon-community-monerokon22": 21,
+      "monerokon-community-monerokon23": 34,
+      "monerokon-community-monerokon24": 36,
+      "pp-prague-ancap": 20,
+      "pp-prague-default": 66,
+      "pp-prague-ethprague22": 41,
+      "pp-prague-ethprague23": 97,
+      "pp-prague-external": 1,
+      "pp-prague-hcpp24": 25,
+      "pp-prague-nestatni-penize": 15,
+      "pp-prague-odysee": 92,
+      "pp-prague-old-channel": 178,
+      "svobodny-pristav-ksp20": 8,
+      "svobodny-pristav-ksp21": 7,
+      "svobodny-pristav-ksp22": 8,
+      "svobodny-pristav-ksp23": 8,
+      "svobodny-pristav-ksp24": 7,
+      "w3pn-default": 48,
+      "w3pn-eth-cypherpunk-congress-2024": 34,
+      "w3pn-eth-cypherpunk-congress-2025": 23,
+      "w3pn-summit1": 1
+    },
+    "bundle": {
+      "file": "bundle.tar.zst",
+      "size": 77536953
+    }
+  },
+  "people": {
+    "generated": "2026-05-31T04:44:29.134Z",
+    "commit": {
+      "hash": "e5f1969488fbf4e5845e31bb1913d974ce82820d",
+      "date": "2026-05-31T06:44:09+02:00"
+    },
+    "collections": {
+      "people": 301
+    },
+    "bundle": {
+      "file": "bundle.tar.zst",
+      "size": 25119142
+    }
+  },
+  "events": {
+    "generated": "2026-05-31T04:44:11.995Z",
+    "commit": {
+      "hash": "9051f5f1ae7dff1744c91639c2df464e8cdafaab",
+      "date": "2026-05-31T06:44:07+02:00"
+    },
+    "collections": {
+      "events": 154
+    },
+    "bundle": {
+      "file": "bundle.tar.zst",
+      "size": 5627438
+    }
+  }
+}
