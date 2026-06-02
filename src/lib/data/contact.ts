@@ -29,7 +29,16 @@ export const signalGroup: ContactChannel = {
 	owners: ['tree|tree 木'],
 };
 
-export const onlineChannels: ContactChannel[] = [signalGroup];
+export const twitterAccount: ContactChannel = {
+	label: 'X (Twitter)',
+	value: '@hetarchy',
+	href: 'https://x.com/hetarchy',
+	external: true,
+	owners: ['tree|tree 木'],
+	ownerRole: 'Admin',
+};
+
+export const onlineChannels: ContactChannel[] = [signalGroup, twitterAccount];
 
 export const gitChannels: ContactChannel[] = [
 	{
